@@ -290,4 +290,4 @@ def test_resolve_instance_hands_the_pin_to_the_spawner(source, monkeypatch):
             spawner=capture,
         )
     assert dict(seen["options"].worker_env) == {"HOME": "/tmp"}
-    assert seen["options"].worker_cwd == "/srv/work"
+    assert seen["options"].worker_cwd == str(Path("/srv/work"))

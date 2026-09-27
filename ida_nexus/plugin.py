@@ -72,8 +72,8 @@ class _NexusPluginComponent:
         version = tuple(
             int(part) for part in idaapi.get_kernel_version().split(".")[:2]
         )
-        if version < (9, 4):
-            self.log("IDA 9.4 or newer is required")
+        if version < (9, 3):
+            self.log("IDA 9.3 or newer is required")
             return False
 
         self.analysis_state = AnalysisState()

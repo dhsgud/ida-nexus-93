@@ -273,9 +273,13 @@ def main(argv: list[str] | None = None) -> int:
     from ida_domain import Database
     from ida_domain.database import IdaCommandOptions
 
-    # serve()/stop_serving() are available in IDA 9.4+, but older idapro
-    # stubs from the pinned ida-domain Git branch do not declare them.
     kernwin: Any = ida_kernwin
+    compatibility_loop = None
+    if not (hasattr(kernwin, "serve") and hasattr(kernwin, "stop_serving")):
+        from .._compat93 import MainThreadLoop
+
+        compatibility_loop = MainThreadLoop()
+    event_loop = compatibility_loop if compatibility_loop is not None else kernwin
 
     analysis_state = AnalysisState()
     analysis_hook: Any | None = None
@@ -290,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     def request_stop(signum: int, frame: Any) -> None:
         nonlocal stop_signal
         stop_signal = signum
-        kernwin.stop_serving()
+        event_loop.stop_serving()
 
     previous_handlers: dict[int, Any] = {}
     for signum in (signal.SIGINT, signal.SIGTERM):
@@ -330,6 +334,11 @@ def main(argv: list[str] | None = None) -> int:
             database=database,
             analysis_state=analysis_state,
             idb_change_state=idb_change_state,
+            main_thread_dispatch=(
+                compatibility_loop.execute_sync
+                if compatibility_loop is not None
+                else None
+            ),
         )
         server = NexusHTTPServer(
             runtime,
@@ -338,24 +347,25 @@ def main(argv: list[str] | None = None) -> int:
             REGISTRY_DIR,
             record_suffix=suffix,
             lease_grace=args.lease_grace,
-            on_shutdown=kernwin.stop_serving,
+            on_shutdown=event_loop.stop_serving,
         )
         server.start()
         if args.auto_analysis:
             server.start_autoanalysis()
         print(f"[ida-nexus] {server.url}", flush=True)
 
-        # In IDA 9.4+, serve() dispatches execute_sync requests from HTTP
-        # threads until managed lease shutdown or a signal calls
-        # stop_serving(). A signal received during database startup must not be
-        # lost before the serve loop begins.
+        # Native dispatch on 9.4+, Python main-thread dispatch on 9.3.
+        # Preserve signals received before the loop starts.
         if stop_signal is None:
-            kernwin.serve()
+            event_loop.serve()
         return 128 + stop_signal if stop_signal is not None else 0
     except Exception as exc:  # noqa: BLE001 -- IDA initialization is third-party code
         print(f"[ida-nexus] {exc}", file=sys.stderr)
         return 1
     finally:
+        if compatibility_loop is not None:
+            # Wake pending callbacks before server.stop() joins their threads.
+            compatibility_loop.stop_serving()
         if server is not None:
             server.stop()
         # IDAPython TESTABLE_BUILD requires user hooks to be gone before kernel

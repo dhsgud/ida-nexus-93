@@ -1,4 +1,21 @@
-# IDA Nexus
+# IDA Nexus — IDA 9.3 compatibility fork
+
+Unofficial compatibility fork of [HexRaysSA/ida-nexus](https://github.com/HexRaysSA/ida-nexus).
+Adds a Python main-thread dispatcher for headless IDA 9.3, whose native
+`serve()` / `stop_serving()` APIs are missing. IDA 9.4+ retains native dispatch.
+
+**Use the [IDA 9.3 installation and test guide](https://github.com/dhsgud/ida-mcp-93/blob/compatibility/ida-9.3/README-IDA93.md)**
+with [ida-mcp-93](https://github.com/dhsgud/ida-mcp-93).
+The upstream install commands below select the original packages, not this fork.
+
+Validated on Windows / IDA Professional 9.3: 314 unit tests and six selected real
+IDA tests, plus end-to-end MCP decompilation and save/reopen. Native cancellation
+can be delayed until a native call returns. GUI integration is unverified.
+Original MIT license and attribution are preserved.
+
+---
+
+# Upstream IDA Nexus documentation
 
 ⚠️ Experimental prerelease ⚠️
 

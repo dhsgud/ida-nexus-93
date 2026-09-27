@@ -692,6 +692,41 @@ def test_idb_hook_installation_requires_execute_sync_callback(
         runtime.enable_idb_change_hook()
 
 
+def test_93_dispatch_keeps_cancel_flags_on_owner(gui_runtime, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ida_nexus._compat93 import MainThreadLoop
+
+    runtime, _, _ = gui_runtime
+    loop = MainThreadLoop()
+    owner = threading.get_ident()
+    runtime.backend = "idalib"
+    runtime._main_thread_dispatch = loop.execute_sync
+
+    def clear():
+        assert threading.get_ident() == owner, "9.3 UI calls deadlock off-thread"
+
+    monkeypatch.setattr(sys.modules["ida_kernwin"], "clr_cancelled", clear)
+    monkeypatch.setattr(
+        sys.modules["ida_kernwin"],
+        "set_cancelled",
+        lambda: pytest.fail("9.3 native cancellation must not run off-thread"),
+    )
+
+    def client():
+        try:
+            with pytest.raises(APIError, match="timed out"):
+                runtime.execute_python("while True: pass", timeout=0.05)
+            assert runtime.execute_python("6 * 7", timeout=1)["result"] == 42
+        finally:
+            loop.stop_serving()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        task = pool.submit(client)
+        loop.serve()
+        task.result(timeout=5)
+
+
 def test_structured_hook_captures_renamed_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

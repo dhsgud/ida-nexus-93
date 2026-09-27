@@ -449,6 +449,8 @@ def create_idb_change_hook(state: IdbChangeState) -> Any:
 class IDARuntime:
     """One uniform execute_sync runtime for GUI and idalib sessions."""
 
+    _main_thread_dispatch: Callable[[Callable[[], int], int], int] | None = None
+
     def __init__(
         self,
         *,
@@ -458,6 +460,7 @@ class IDARuntime:
         idb_change_state: IdbChangeState,
         default_timeout: float = DEFAULT_TIMEOUT_SECONDS,
         unattributed_operation_label: str | None = None,
+        main_thread_dispatch: Callable[[Callable[[], int], int], int] | None = None,
     ) -> None:
         # Library warnings would otherwise be captured as stderr and returned
         # to the agent alongside execution output.
@@ -471,8 +474,12 @@ class IDARuntime:
         version = tuple(
             int(part) for part in idaapi.get_kernel_version().split(".")[:2]
         )
-        if version < (9, 4):
-            raise RuntimeError("IDA Nexus requires IDA 9.4 or newer")
+        if version < (9, 3):
+            raise RuntimeError(
+                "IDA Nexus compatibility build requires IDA 9.3 or newer"
+            )
+        if version < (9, 4) and backend == "idalib" and main_thread_dispatch is None:
+            raise RuntimeError("IDA 9.3 idalib requires the main-thread dispatcher")
 
         if not math.isfinite(default_timeout) or default_timeout <= 0:
             raise ValueError("default_timeout must be a positive finite number")
@@ -483,6 +490,7 @@ class IDARuntime:
         self.idb_change_state = idb_change_state
         self.default_timeout = default_timeout
         self.unattributed_operation_label = unattributed_operation_label
+        self._main_thread_dispatch = main_thread_dispatch
 
         self._operation_lock = threading.Lock()
         self._active_lock = threading.Lock()
@@ -493,6 +501,13 @@ class IDARuntime:
         self._active_interrupt_error: APIError | None = None
         self._session_namespaces: dict[str, dict[str, Any]] = {}
         self._idb_change_hook: Any = None
+
+    def _execute_sync(self, callback: Callable[[], int], flags: int) -> int:
+        if self._main_thread_dispatch is not None:
+            return self._main_thread_dispatch(callback, flags)
+        import ida_kernwin
+
+        return ida_kernwin.execute_sync(callback, flags)
 
     def _interrupt_active(
         self,
@@ -514,8 +529,11 @@ class IDARuntime:
                 return
             self._active_interrupt_error = error
             self._active_cancel_event.set()
-            if self.backend != "gui":
+            if self.backend != "gui" and self._main_thread_dispatch is None:
                 ida_kernwin.set_cancelled()
+            # ponytail: 9.3 UI cancellation marshals through its absent native
+            # loop. Python cancellation still works; native calls must return
+            # before it takes effect. Use IDA 9.4 for native cancellation.
             if self._active_thread_id is not None:
                 _interrupt_thread(self._active_thread_id)
 
@@ -701,7 +719,7 @@ class IDARuntime:
                 return 1
 
             try:
-                ida_kernwin.execute_sync(invoke, ida_kernwin.MFF_WRITE)
+                self._execute_sync(invoke, ida_kernwin.MFF_WRITE)
                 if outcome is None:
                     raise APIError(
                         "execute_sync_failed",
@@ -717,7 +735,10 @@ class IDARuntime:
                         self._active_thread_id = None
                         self._active_interrupt_error = None
                 # Defend against a timeout racing with deadline cancellation.
-                ida_kernwin.clr_cancelled()
+                if self._main_thread_dispatch is None:
+                    ida_kernwin.clr_cancelled()
+                # In 9.3 invoke() already cleared the flag on the owning thread;
+                # the compatibility timeout path never sets a native flag.
 
         if succeeded:
             if capture_output:
@@ -780,7 +801,7 @@ class IDARuntime:
                 self._idb_change_hook = hook
             return 1
 
-        ida_kernwin.execute_sync(install, ida_kernwin.MFF_FAST)
+        self._execute_sync(install, ida_kernwin.MFF_FAST)
         if self._idb_change_hook is None:
             raise RuntimeError("IDA did not install the database-change hook")
 
@@ -795,7 +816,7 @@ class IDARuntime:
                 self._idb_change_hook = None
             return 1
 
-        ida_kernwin.execute_sync(uninstall, ida_kernwin.MFF_FAST)
+        self._execute_sync(uninstall, ida_kernwin.MFF_FAST)
         if self._idb_change_hook is not None:
             raise RuntimeError("IDA did not remove the database-change hook")
 

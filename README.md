@@ -4,13 +4,16 @@ Unofficial compatibility fork of [HexRaysSA/ida-nexus](https://github.com/HexRay
 Adds a Python main-thread dispatcher for headless IDA 9.3, whose native
 `serve()` / `stop_serving()` APIs are missing. IDA 9.4+ retains native dispatch.
 
-**Use the [IDA 9.3 installation and test guide](https://github.com/dhsgud/ida-mcp-93/blob/compatibility/ida-9.3/README-IDA93.md)**
-with [ida-mcp-93](https://github.com/dhsgud/ida-mcp-93).
+**Use the [IDA 9.3 installation and test guide](https://github.com/dhsgud/ida-mcp-93/blob/compatibility/ida-9.3-macos-arm64/README-IDA93.md)**
+with [ida-mcp-93](https://github.com/dhsgud/ida-mcp-93/tree/compatibility/ida-9.3-macos-arm64).
 The upstream install commands below select the original packages, not this fork.
 
 Validated on Windows / IDA Professional 9.3: 314 unit tests and six selected real
-IDA tests, plus end-to-end MCP decompilation and save/reopen. Native cancellation
-can be delayed until a native call returns. GUI integration is unverified.
+IDA tests, plus end-to-end MCP decompilation and save/reopen. On macOS 26.5.1 /
+Apple Silicon arm64 / IDA Professional 9.3, the headless stdio MCP integration
+smoke passed with this Nexus package, including decompilation and save/reopen.
+Native cancellation can be delayed until a native call returns. GUI integration
+is unverified.
 Original MIT license and attribution are preserved.
 
 ---
